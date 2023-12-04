@@ -5,6 +5,6 @@
 
 ## Steps for using docker
 ```sh
-docker build -f Dockerfile -t chest-xray
-docker run chest-xray
+docker build -f Dockerfile -t chest-xray .
+docker run -p 8501:8501 chest-xray
 ```

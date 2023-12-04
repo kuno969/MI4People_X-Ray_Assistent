@@ -29,7 +29,7 @@ def main():
     st.write("\n")
 
     # Layout
-    text1 = st.empty()
+    info1 = st.empty()
     col1, col2 = st.columns(2)
 
     # Sidebar
@@ -38,6 +38,19 @@ def main():
 
     # Choose your own image
     uploaded_file = st.sidebar.file_uploader("Upload files", type=["png", "jpeg", "jpg"])
+
+    if uploaded_file is not None:
+        # Load image
+        img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
+        img_tensor = to_tensor(img)
+
+        # Show imputs
+        with col1:
+            fig1, ax1 = plt.subplots()
+            ax1.axis("off")
+            ax1.imshow(to_pil_image(img_tensor))
+            st.header("Input X-ray image")
+            st.pyplot(fig1)
 
     # Model selection
     st.sidebar.title("Setup")
@@ -48,28 +61,30 @@ def main():
         help="Supported models from Torchxrayvision",
     )
 
-    if "model_choice_disabled" not in st.session_state:
-        st.session_state.model_choice_disabled = True
-
     model_lib = AbstractModelLibrary()
     if model_source is not None:
         if model_source=="XRV":
             model_lib = XRVModelLibrary()
-            st.session_state.model_choice_disabled = False
     
     model_choice = st.sidebar.selectbox(
         "Model choice",
         model_lib.CHOICES,
-        disabled = st.session_state.model_choice_disabled,
         )
 
     model = None
     target_layer = None
-    if st.session_state is not None:
+    if model_source is not None:
         with st.spinner("Loading model..."):
             model = model_lib.get_model(model_choice).eval()
-            target_layer = model_lib.get_target_layer(model)
+            target_layer = [model_lib.get_target_layer(model)]
 
+    # Result selection
+    class_choices = []
+    if model is not None:
+        class_choices = model_lib.LABELS
+    class_selection = st.sidebar.selectbox("Class selection", ["Diagnosed Case"] + class_choices)
+
+    # CAM selection
     cam_method = st.sidebar.selectbox(
         "CAM method",
         CAM_METHODS,
@@ -77,13 +92,10 @@ def main():
     )
 
     cam_extractor = None
-    if cam_method is not None:
+    if cam_method is not None and \
+        model is not None and \
+        target_layer is not None:
         cam_extractor = methods.__dict__[cam_method](model, target_layer)
-
-    class_choices = []
-    if model is not None:
-        class_choices = [f"{idx + 1} - {class_name}" for idx, class_name in enumerate(model_lib.LABELS)]
-    class_selection = st.sidebar.selectbox("Class selection", ["No selection"] + class_choices)
 
     # For newline
     st.sidebar.write("\n")
@@ -92,18 +104,6 @@ def main():
         if uploaded_file is None:
             st.sidebar.error("Please upload an image first")
         else:
-            # Load image
-            img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
-            img_tensor = to_tensor(img)
-
-            # Show imputs
-            with col1:
-                fig1, ax1 = plt.subplots()
-                ax1.axis("off")
-                ax1.imshow(to_pil_image(img_tensor))
-                st.header("Input X-ray image")
-                st.pyplot(fig1)
-
             if model is None:
                 st.sidebar.error("Please select a classification model")
             else:
@@ -122,11 +122,11 @@ def main():
                     class_idx = out.squeeze(0).argmax().item()
                     diagnosis_label = model_lib.LABELS[class_idx]
 
-                    with text1:
+                    with info1:
                         st.write("Based on the inputs, the diagnosis is "+diagnosis_label)
 
                     class_label = diagnosis_label
-                    if class_selection != "No selection":
+                    if class_selection != "Diagnosed Case":
                         class_label = class_selection.split("-")[-1].strip()
                         class_idx = model_lib.LABELS.index(class_label)
 

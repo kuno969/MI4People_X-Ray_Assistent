@@ -35,7 +35,7 @@ class XRVModelLibrary(AbstractModelLibrary):
 
     def get_model(self, choice: str):
         model = xrv.models.DenseNet(weights=choice)
-        self.LABELS = model.pathologies
+        self.LABELS = model.targets
         return model
 
     def get_target_layer(self, model):

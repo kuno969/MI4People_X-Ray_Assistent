@@ -72,18 +72,24 @@ def main():
         )
 
     model = None
-    target_layer = None
     if model_source is not None:
         with st.spinner("Loading model..."):
             model = model_lib.get_model(model_choice).eval()
-            target_layer = [model_lib.get_target_layer(model)]
 
     # Result selection
-    class_choices = []
-    if model is not None:
-        class_choices = model_lib.LABELS
-    class_selection = st.sidebar.selectbox("Class selection", ["Diagnosed Case"] + class_choices)
+    #class_choices = []
+    #if model is not None:
+        #class_choices = model_lib.LABELS
+    #class_selection = st.sidebar.selectbox("Class selection", ["Diagnosed Case"] + class_choices)
 
+    # Target layer selection
+    if model_lib is not None and \
+        model is not None:
+        target_layer = st.sidebar.selectbox(
+            "Target Layer",
+            model_lib.TARGET_LAYERS.keys()
+        )
+    
     # CAM selection
     cam_method = st.sidebar.selectbox(
         "CAM method",
@@ -95,7 +101,7 @@ def main():
     if cam_method is not None and \
         model is not None and \
         target_layer is not None:
-        cam_extractor = methods.__dict__[cam_method](model, target_layer)
+        cam_extractor = methods.__dict__[cam_method](model, model_lib.TARGET_LAYERS[target_layer])
 
     # For newline
     st.sidebar.write("\n")
@@ -126,9 +132,9 @@ def main():
                         st.write("Based on the inputs, the diagnosis is "+diagnosis_label)
 
                     class_label = diagnosis_label
-                    if class_selection != "Diagnosed Case":
-                        class_label = class_selection.split("-")[-1].strip()
-                        class_idx = model_lib.LABELS.index(class_label)
+                    #if class_selection != "Diagnosed Case":
+                        #class_label = class_selection.split("-")[-1].strip()
+                        #class_idx = model_lib.LABELS.index(class_label)
 
                     activation_maps = cam_extractor(class_idx, out)
 

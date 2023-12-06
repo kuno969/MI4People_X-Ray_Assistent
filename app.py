@@ -115,14 +115,14 @@ def main():
             else:
                 with st.spinner("Analyzing..."):
                     # Preprocess image
-                    transformed_img, normalized_img = model_lib.preprocess(img_tensor)
+                    transformed_img, rescaled_img = model_lib.preprocess(img_tensor)
 
                     # Forward
                     if torch.cuda.is_available():
                         model = model.cuda()
-                        normalized_img = normalized_img.cuda()
+                        rescaled_img = rescaled_img.cuda()
 
-                    out = model(normalized_img.unsqueeze(0))
+                    out = model(rescaled_img.unsqueeze(0))
 
                     # Select the target class
                     class_idx = out.squeeze(0).argmax().item()

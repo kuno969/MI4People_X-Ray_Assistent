@@ -50,5 +50,6 @@ class XRVModelLibrary(AbstractModelLibrary):
                 torchvision.transforms.Resize((224,224)),
                 ])
         transformed_output = transform(img)
-        normalized_output = normalize(transformed_output/255, 0, 1)
-        return transformed_output, normalized_output
+        normalized_output = normalize(transformed_output, 0, 1)
+        rescaled_output = 1024*normalized_output
+        return transformed_output, rescaled_output

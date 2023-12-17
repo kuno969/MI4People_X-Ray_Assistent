@@ -36,12 +36,12 @@ class XRVModelLibrary(AbstractModelLibrary):
         self.TARGET_LAYERS["layer+4-1+2"]=model.features[4][-1][2]
         self.TARGET_LAYERS["layer+4-1+5"]=model.features[4][-1][5]
         self.TARGET_LAYERS["layer+6-1+2"]=model.features[6][-1][2]
-        self.TARGET_LAYERS["layer+6-1+5"]=model.features[6][-1][2]
+        self.TARGET_LAYERS["layer+6-1+5"]=model.features[6][-1][5]
         self.TARGET_LAYERS["layer+8-1+2"]=model.features[8][-1][2]
-        self.TARGET_LAYERS["layer+8-1+5"]=model.features[8][-1][2]
+        self.TARGET_LAYERS["layer+8-1+5"]=model.features[8][-1][5]
         self.TARGET_LAYERS["layer+10-1+2"]=model.features[10][-1][2]
-        self.TARGET_LAYERS["layer+10-1+5"]=model.features[10][-1][2]
-        return model
+        self.TARGET_LAYERS["layer+10-1+5"]=model.features[10][-1][5]
+        return model.eval()
 
     def preprocess(self, img):
         transform = torchvision.transforms.Compose([
@@ -50,6 +50,9 @@ class XRVModelLibrary(AbstractModelLibrary):
                 torchvision.transforms.Resize((224,224)),
                 ])
         transformed_output = transform(img)
-        normalized_output = normalize(transformed_output, 0, 1)
-        rescaled_output = 1024*normalized_output
+
+        img_min = transformed_output.min()
+        img_max = transformed_output.max()
+
+        rescaled_output = 2048*(transformed_output-img_min)/(img_max-img_min) - 1024
         return transformed_output, rescaled_output

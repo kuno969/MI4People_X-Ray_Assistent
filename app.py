@@ -15,11 +15,19 @@ from torchcam.utils import overlay_mask
 from PIL import Image
 
 from src.model_library import *
+from src.feedback_utils import *
 
-CAM_METHODS = ["CAM", "GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
+# All supported CAM
+#CAM_METHODS = ["CAM", "GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
+
+# Supported CAMs for multiple target layers
+CAM_METHODS = ["GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
 MODEL_SOURCES = ["XRV"]
+NUM_RESULTS = 5
 
 def main():
+    feedback = Feedback()
+
     # Wide mode
     st.set_page_config(layout="wide")
 
@@ -29,8 +37,7 @@ def main():
     st.write("\n")
 
     # Layout
-    info1 = st.empty()
-    col1, col2 = st.columns(2)
+    input_col, general_feedback_col = st.columns(2)
 
     # Sidebar
     # File selection
@@ -45,7 +52,7 @@ def main():
         img_tensor = to_tensor(img)
 
         # Show imputs
-        with col1:
+        with input_col:
             fig1, ax1 = plt.subplots()
             ax1.axis("off")
             ax1.imshow(to_pil_image(img_tensor))
@@ -76,16 +83,11 @@ def main():
         with st.spinner("Loading model..."):
             model = model_lib.get_model(model_choice).eval()
 
-    # Result selection
-    #class_choices = []
-    #if model is not None:
-        #class_choices = model_lib.LABELS
-    #class_selection = st.sidebar.selectbox("Class selection", ["Diagnosed Case"] + class_choices)
-
     # Target layer selection
+    target_layers = []
     if model_lib is not None and \
         model is not None:
-        target_layer = st.sidebar.selectbox(
+        target_layers = st.sidebar.multiselect(
             "Target Layer",
             model_lib.TARGET_LAYERS.keys()
         )
@@ -97,14 +99,12 @@ def main():
         help="The way your class activation map will be computed",
     )
 
-    cam_extractor = None
-    if cam_method is not None and \
-        model is not None and \
-        target_layer is not None:
-        cam_extractor = methods.__dict__[cam_method](model, model_lib.TARGET_LAYERS[target_layer])
-
     # For newline
     st.sidebar.write("\n")
+
+    feedback_submitted = None
+    feedback_comment = [None for i in range(NUM_RESULTS)]
+    feedback_ok = [False for i in range(NUM_RESULTS)]
 
     if st.sidebar.button("Diagnose"):
         if uploaded_file is None:
@@ -112,43 +112,77 @@ def main():
         else:
             if model is None:
                 st.sidebar.error("Please select a classification model")
+            elif len(target_layers)==0:
+                st.sidebar.error("Please select target layers.")
+            elif cam_method is None:
+                st.sidebar.error("Please select CAM method.")
             else:
                 with st.spinner("Analyzing..."):
+                    result_cols = [None for i in range(NUM_RESULTS)]
+                    feedback_cols = [None for i in range(NUM_RESULTS)]
+
+                    # Initialize CAM
+                    cam_extractor = methods.__dict__[cam_method](model,
+                                            target_layer=[model_lib.TARGET_LAYERS[layer]
+                                            for layer in target_layers])
+
                     # Preprocess image
                     transformed_img, rescaled_img = model_lib.preprocess(img_tensor)
 
-                    # Forward
                     if torch.cuda.is_available():
                         model = model.cuda()
                         rescaled_img = rescaled_img.cuda()
 
-                    out = model(rescaled_img.unsqueeze(0))
-
-                    # Select the target class
-                    class_idx = out.squeeze(0).argmax().item()
-                    diagnosis_label = model_lib.LABELS[class_idx]
-
-                    with info1:
-                        st.write("Based on the inputs, the diagnosis is "+diagnosis_label)
-
-                    class_label = diagnosis_label
-                    #if class_selection != "Diagnosed Case":
-                        #class_label = class_selection.split("-")[-1].strip()
-                        #class_idx = model_lib.LABELS.index(class_label)
-
-                    activation_maps = cam_extractor(class_idx, out)
-
                     # Show results
-                    result = overlay_mask(to_pil_image(transformed_img.expand(3,-1,-1)), \
-                                        to_pil_image(activation_maps[0].squeeze(0), mode='F'), \
-                                        alpha=0.7)
+                    with st.form("form"):
+                        for i in range(NUM_RESULTS):
+                            result_cols[i], feedback_cols[i] = st.columns(2)
+                            st.divider()
 
-                    with col2:
-                        fig2, ax2 = plt.subplots()
-                        ax2.axis("off")
-                        ax2.imshow(result)
-                        st.header("Overlay : "+class_label)
-                        st.pyplot(fig2)
+                        for i in range(NUM_RESULTS):
+                            # Forward
+                            out = model(rescaled_img.unsqueeze(0))
+
+                            # Select the target class
+                            class_ids = torch.topk(out.squeeze(0), NUM_RESULTS).indices
+
+                            with result_cols[i]:
+                                class_label = model_lib.LABELS[class_ids[i].item()]
+
+                                activation_maps = cam_extractor(class_idx=class_ids[i].item(),
+                                                                scores=out)
+
+                                # Fuse the CAMs if there are several
+                                activation_map = activation_maps[0] if len(activation_maps) == 1 \
+                                                else cam_extractor.fuse_cams(activation_maps)
+                                result = overlay_mask(to_pil_image(transformed_img.expand(3,-1,-1)), \
+                                                    to_pil_image(activation_map.squeeze(0), mode='F'), \
+                                                    alpha=0.7)
+
+                                fig2, ax2 = plt.subplots()
+                                ax2.axis("off")
+                                ax2.imshow(result)
+                                st.header("Result %d : %s"%(i+1,class_label))
+                                st.pyplot(fig2)
+
+                            with feedback_cols[i]:
+                                st.write("")
+                                probability = out.squeeze(0)[class_ids[i]].item()*100
+                                st.write("**Probability** : %0.2f %%"%(probability,))
+                                feedback_ok[i] = st.checkbox("Confirm", key="Confirm-%d"%(i+1))
+                                feedback_comment[i] = st.text_area("Comment", key="Comment-%d"%(i+1))
+
+                        feedback_submitted = st.form_submit_button("Submit")
+
+                    if feedback_submitted:
+                        feedback = Feedback()
+                        for i in range(NUM_RESULTS):
+                            feedback.insert("result%d_confirm"%(i),str(feedback_ok[i]))
+                            feedback.insert("result%d_comment"%(i),str(feedback_comment[i]))
+                        
+                        with general_feedback_col:
+                            st.subheader("Feedback summary")
+                            st.write(str(feedback.get_data()))
 
 if __name__ == "__main__":
     main()

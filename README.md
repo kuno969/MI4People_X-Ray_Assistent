@@ -8,3 +8,6 @@
 docker build -f Dockerfile -t chest-xray .
 docker run -p 8501:8501 chest-xray
 ```
+
+## Preview
+![preview](app_preview.png)

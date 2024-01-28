@@ -7,7 +7,7 @@ class AbstractModelLibrary:
     def __init__(self):
         self.CHOICES = []
         self.LABELS = []
-        self.TARGET_LAYERS = {}
+        self.TARGET_LAYER = None
 
     @abstractmethod
     def get_model(self, choice: str):
@@ -33,14 +33,7 @@ class XRVModelLibrary(AbstractModelLibrary):
     def get_model(self, choice: str):
         model = xrv.models.DenseNet(weights=choice)
         self.LABELS = model.targets
-        self.TARGET_LAYERS["layer+4-1+2"]=model.features[4][-1][2]
-        self.TARGET_LAYERS["layer+4-1+5"]=model.features[4][-1][5]
-        self.TARGET_LAYERS["layer+6-1+2"]=model.features[6][-1][2]
-        self.TARGET_LAYERS["layer+6-1+5"]=model.features[6][-1][5]
-        self.TARGET_LAYERS["layer+8-1+2"]=model.features[8][-1][2]
-        self.TARGET_LAYERS["layer+8-1+5"]=model.features[8][-1][5]
-        self.TARGET_LAYERS["layer+10-1+2"]=model.features[10][-1][2]
-        self.TARGET_LAYERS["layer+10-1+5"]=model.features[10][-1][5]
+        self.TARGET_LAYER = model.features[10][-1][5]
         return model.eval()
 
     def preprocess(self, img):

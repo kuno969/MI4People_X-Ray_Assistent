@@ -1,0 +1,12 @@
+torch
+torchvision
+torchaudio
+torchxrayvision
+torchcam
+streamlit
+azureml
+azureml-core
+azureml-dataprep
+azureml-fsspec
+azure-storage-blob
+azure-identity

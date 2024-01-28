@@ -16,6 +16,9 @@ from PIL import Image
 
 from src.model_library import *
 from src.feedback_utils import *
+from src.db_interface import *
+
+import requests
 
 # All supported CAM
 #CAM_METHODS = ["CAM", "GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
@@ -43,12 +46,35 @@ def main():
     # File selection
     st.sidebar.title("Input selection")
 
-    # Choose your own image
+    # Enter access key
+    account_key = st.sidebar.text_input("account_key")
+
+    # Choose image
+    metadata = MetadataStore()
+
+    if account_key is not None:
+        metadata.read_from_azure(account_key)
+
+    filter_label = st.sidebar.selectbox("Filter Label", metadata.get_unique_labels())
+
+    img = None
+    if filter_label is not None:
+        image_filename = st.sidebar.selectbox("Image Filename", metadata.get_image_filenames(filter_label))
+
+        if image_filename is not None:
+            st.write("Store label : "+metadata.get_full_label(image_filename))
+
+            blob_data = get_image_from_azure(account_key,image_filename)
+            img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+
+    # Upload image
     uploaded_file = st.sidebar.file_uploader("Upload files", type=["png", "jpeg", "jpg"])
 
     if uploaded_file is not None:
         # Load image
         img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
+
+    if img is not None:
         img_tensor = to_tensor(img)
 
         # Show imputs
@@ -83,15 +109,6 @@ def main():
         with st.spinner("Loading model..."):
             model = model_lib.get_model(model_choice).eval()
 
-    # Target layer selection
-    target_layers = []
-    if model_lib is not None and \
-        model is not None:
-        target_layers = st.sidebar.multiselect(
-            "Target Layer",
-            model_lib.TARGET_LAYERS.keys()
-        )
-    
     # CAM selection
     cam_method = st.sidebar.selectbox(
         "CAM method",
@@ -107,13 +124,11 @@ def main():
     feedback_ok = [False for i in range(NUM_RESULTS)]
 
     if st.sidebar.button("Diagnose"):
-        if uploaded_file is None:
+        if img is None:
             st.sidebar.error("Please upload an image first")
         else:
             if model is None:
                 st.sidebar.error("Please select a classification model")
-            elif len(target_layers)==0:
-                st.sidebar.error("Please select target layers.")
             elif cam_method is None:
                 st.sidebar.error("Please select CAM method.")
             else:
@@ -123,8 +138,7 @@ def main():
 
                     # Initialize CAM
                     cam_extractor = methods.__dict__[cam_method](model,
-                                            target_layer=[model_lib.TARGET_LAYERS[layer]
-                                            for layer in target_layers])
+                                            target_layer=model_lib.TARGET_LAYER)
 
                     # Preprocess image
                     transformed_img, rescaled_img = model_lib.preprocess(img_tensor)

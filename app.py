@@ -4,21 +4,17 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 import torch
-import torchvision
-from torchvision.io.image import read_image
 from torchvision.transforms.functional import to_tensor, to_pil_image
 
 from torchcam import methods
-from torchcam.methods._utils import locate_candidate_layer
 from torchcam.utils import overlay_mask
 
 from PIL import Image
 
-from src.model_library import *
-from src.feedback_utils import *
-from src.db_interface import *
+from src.model_library import XRVModelLibrary, AbstractModelLibrary
+from src.feedback_utils import Feedback
+from src.db_interface import MetadataStore, get_image_from_azure, setup_container_client
 
-import requests
 
 # All supported CAM
 #CAM_METHODS = ["CAM", "GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
@@ -52,8 +48,13 @@ def main():
     # Choose image
     metadata = MetadataStore()
 
+    img = None
+
     if account_key is not None:
-        metadata.read_from_azure(account_key)
+
+        container_client = setup_container_client(account_key)
+
+        metadata.read_from_azure(container_client)
 
         filter_label = st.sidebar.selectbox("Filter Label", metadata.get_unique_labels())
 
@@ -62,9 +63,9 @@ def main():
             image_filename = st.sidebar.selectbox("Image Filename", metadata.get_image_filenames(filter_label))
 
             if image_filename is not None:
-                st.write("Store label : "+metadata.get_full_label(image_filename))
+                st.write("Store label : " + metadata.get_full_label(image_filename))
 
-                blob_data = get_image_from_azure(account_key,image_filename)
+                blob_data = get_image_from_azure(container_client, image_filename)
                 img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
 
     # Upload image
@@ -73,8 +74,6 @@ def main():
     if uploaded_file is not None:
         # Load image
         img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
-    else:
-        img = None
 
     if img is not None:
         img_tensor = to_tensor(img)

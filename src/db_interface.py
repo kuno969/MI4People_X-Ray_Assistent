@@ -1,4 +1,5 @@
 import pandas as pd
+import random
 
 from azure.storage.blob import ContainerClient
 
@@ -45,6 +46,9 @@ class MetadataStore:
     
     def get_image_filenames(self, label: str) -> list[str]:
         return self._df[self._df["Finding Labels"].str.contains(label)]["Image Index"].to_list()
+    
+    def get_random_image_filenames(self, label: str, n: int) -> list[str]:
+        return random.sample(self._df[self._df["Finding Labels"].str.contains(label)]["Image Index"].to_list(), n)
     
     def get_full_label(self, image_filename: str) -> str:
         return self._df[self._df["Image Index"]==image_filename]["Finding Labels"].to_list()[0]

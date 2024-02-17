@@ -20,9 +20,10 @@ from src.db_interface import MetadataStore, get_image_from_azure, setup_containe
 #CAM_METHODS = ["CAM", "GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
 
 # Supported CAMs for multiple target layers
-CAM_METHODS = ["GradCAM", "GradCAMpp", "SmoothGradCAMpp", "ScoreCAM", "SSCAM", "ISCAM", "XGradCAM", "LayerCAM"]
+CAM_METHODS = ["GradCAM", "GradCAMpp", "SmoothGradCAMpp", "XGradCAM", "LayerCAM", "ScoreCAM", "SSCAM", "ISCAM"]
+# CAM_METHODS = []
 MODEL_SOURCES = ["XRV"]
-NUM_RESULTS = 5
+NUM_RESULTS = 2
 
 def main():
     feedback = Feedback()
@@ -108,7 +109,10 @@ def main():
     model = None
     if model_source is not None:
         with st.spinner("Loading model..."):
-            model = model_lib.get_model(model_choice).eval()
+            model = model_lib.get_model(model_choice)
+
+    for p in model.parameters():
+        p.requires_grad_(False)
 
     # CAM selection
     cam_method = st.sidebar.selectbox(
@@ -137,12 +141,19 @@ def main():
                     result_cols = [None for i in range(NUM_RESULTS)]
                     feedback_cols = [None for i in range(NUM_RESULTS)]
 
+
+                    cam_extractors = []
                     # Initialize CAM
-                    cam_extractor = methods.__dict__[cam_method](model,
-                                            target_layer=model_lib.TARGET_LAYER)
+
+                    for cam_method in CAM_METHODS:
+                        cam_extractor = methods.__dict__[cam_method](model,
+                                                target_layer=model_lib.TARGET_LAYER, enable_hooks=False)
+                        cam_extractors.append(cam_extractor)
 
                     # Preprocess image
                     transformed_img, rescaled_img = model_lib.preprocess(img_tensor)
+
+                    rescaled_img.requires_grad_(True)
 
                     if torch.cuda.is_available():
                         model = model.cuda()
@@ -151,22 +162,30 @@ def main():
                     # Show results
                     with st.form("form"):
                         for i in range(NUM_RESULTS):
-                            result_cols[i], feedback_cols[i] = st.columns(2)
+                            result_cols[i], feedback_cols[i] = st.container(), st.container()
                             st.divider()
 
                         for i in range(NUM_RESULTS):
-                            # Forward
-                            out = model(rescaled_img.unsqueeze(0))
 
-                            # Select the target class
-                            class_ids = torch.topk(out.squeeze(0), NUM_RESULTS).indices
+                            fig2, ax2 = plt.subplots(ncols=len(cam_extractors), figsize=(20, 5))
 
-                            with result_cols[i]:
-                                class_label = model_lib.LABELS[class_ids[i].item()]
+                             
 
+                            for idx, cam_extractor in enumerate(cam_extractors):
+                                # Forward
+                                cam_extractor._hooks_enabled = True
+                                model.zero_grad()
+                                out = model(rescaled_img.unsqueeze(0))
+
+                                # Select the target class
+                                class_ids = torch.topk(out.squeeze(0), NUM_RESULTS).indices
+
+                                print(CAM_METHODS[idx])
+                            
+                                    
                                 activation_maps = cam_extractor(class_idx=class_ids[i].item(),
-                                                                scores=out)
-
+                                                            scores=out)
+                                
                                 # Fuse the CAMs if there are several
                                 activation_map = activation_maps[0] if len(activation_maps) == 1 \
                                                 else cam_extractor.fuse_cams(activation_maps)
@@ -174,9 +193,18 @@ def main():
                                                     to_pil_image(activation_map.squeeze(0), mode='F'), \
                                                     alpha=0.7)
 
-                                fig2, ax2 = plt.subplots()
-                                ax2.axis("off")
-                                ax2.imshow(result)
+                                # plot result on respective axis
+                                ax2[idx].set_title(CAM_METHODS[idx])
+                                ax2[idx].axis("off")
+                                ax2[idx].imshow(result)
+                                # ax2.axis("off")
+                                # ax2.imshow(result)
+                                cam_extractor.remove_hooks()
+                                cam_extractor._hooks_enabled = False
+
+                            
+                            with result_cols[i]:
+                                class_label = model_lib.LABELS[class_ids[i].item()]
                                 st.header("Result %d : %s"%(i+1,class_label))
                                 st.pyplot(fig2)
 

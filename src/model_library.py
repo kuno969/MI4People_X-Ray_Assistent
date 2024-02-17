@@ -5,6 +5,7 @@ import torch
 import torchxrayvision as xrv
 import torchvision
 
+
 class AbstractModelLibrary:
     def __init__(self) -> None:
         self.CHOICES = []
@@ -18,6 +19,7 @@ class AbstractModelLibrary:
     @abstractmethod
     def preprocess(self, img: torch.Tensor) -> torch.Tensor:
         pass
+
 
 class XRVModelLibrary(AbstractModelLibrary):
     def __init__(self) -> None:
@@ -39,15 +41,19 @@ class XRVModelLibrary(AbstractModelLibrary):
         return model.eval()
 
     def preprocess(self, img: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        transform = torchvision.transforms.Compose([
+        transform = torchvision.transforms.Compose(
+            [
                 torchvision.transforms.Grayscale(num_output_channels=1),
                 torchvision.transforms.CenterCrop(max(img.shape)),
-                torchvision.transforms.Resize((224,224)),
-                ])
+                torchvision.transforms.Resize((224, 224)),
+            ]
+        )
         transformed_output = transform(img)
 
         img_min = transformed_output.min()
         img_max = transformed_output.max()
 
-        rescaled_output = 2048*(transformed_output-img_min)/(img_max-img_min) - 1024
+        rescaled_output = (
+            2048 * (transformed_output - img_min) / (img_max - img_min) - 1024
+        )
         return transformed_output, rescaled_output

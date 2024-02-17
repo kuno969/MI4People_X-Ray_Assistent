@@ -1,24 +1,26 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+
+import torch
+
 import torchxrayvision as xrv
 import torchvision
-from torchvision.transforms.functional import normalize
 
 class AbstractModelLibrary:
-    def __init__(self):
+    def __init__(self) -> None:
         self.CHOICES = []
         self.LABELS = []
         self.TARGET_LAYER = None
 
     @abstractmethod
-    def get_model(self, choice: str):
+    def get_model(self, choice: str) -> torch.nn.Module:
         pass
 
     @abstractmethod
-    def preprocess(self, img):
+    def preprocess(self, img: torch.Tensor) -> torch.Tensor:
         pass
 
 class XRVModelLibrary(AbstractModelLibrary):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.CHOICES = [
             "densenet121-res224-all",
@@ -30,13 +32,13 @@ class XRVModelLibrary(AbstractModelLibrary):
             "densenet121-res224-mimic_ch",
         ]
 
-    def get_model(self, choice: str):
+    def get_model(self, choice: str) -> torch.nn.Module:
         model = xrv.models.DenseNet(weights=choice)
         self.LABELS = model.targets
         self.TARGET_LAYER = model.features[10][-1][5]
         return model.eval()
 
-    def preprocess(self, img):
+    def preprocess(self, img: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         transform = torchvision.transforms.Compose([
                 torchvision.transforms.Grayscale(num_output_channels=1),
                 torchvision.transforms.CenterCrop(max(img.shape)),

@@ -1,15 +1,8 @@
 import pandas as pd
-from azureml.fsspec import AzureMachineLearningFileSystem
 
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
-from azure.identity import DefaultAzureCredential
-from azure.core.credentials import AzureSasCredential
+from azure.storage.blob import ContainerClient
 
-import pandas as pd
-
-import base64
-
-def setup_container_client(account_key):
+def setup_container_client(account_key: str) -> ContainerClient:
     STORAGEACCOUNTURL= "https://computervision8800143538.blob.core.windows.net"
     STORAGEACCOUNTKEY = account_key
     CONTAINERNAME = "azureml-blobstore-cfd7f06d-0bfa-49bf-a8a6-12758a29e5dc"
@@ -18,7 +11,7 @@ def setup_container_client(account_key):
     
     return container_client
 
-def read_data_from_azure_blob(container_client, blob_name):
+def read_data_from_azure_blob(container_client: ContainerClient, blob_name: str) -> bytes:
 
     blob_data = container_client.download_blob(blob_name)
     
@@ -30,11 +23,11 @@ def get_image_from_azure(container_client, image_filename):
     return read_data_from_azure_blob(container_client, blob_name)
 
 class MetadataStore:
-    def __init__(self):
+    def __init__(self) -> None:
         self._df = None
         self._unique_labels = set()
 
-    def read_from_azure(self, container_client):
+    def read_from_azure(self, container_client: ContainerClient) -> None:
         LOCALFILENAME = "./meta.csv"
         
         with open(LOCALFILENAME, "wb") as my_blob:
@@ -47,11 +40,11 @@ class MetadataStore:
             for label in labels.split("|"):
                 self._unique_labels.add(label)
 
-    def get_unique_labels(self):
+    def get_unique_labels(self) -> list[str]:
         return self._unique_labels
     
-    def get_image_filenames(self, label):
+    def get_image_filenames(self, label: str) -> list[str]:
         return self._df[self._df["Finding Labels"].str.contains(label)]["Image Index"].to_list()
     
-    def get_full_label(self, image_filename):
+    def get_full_label(self, image_filename: str) -> str:
         return self._df[self._df["Image Index"]==image_filename]["Finding Labels"].to_list()[0]

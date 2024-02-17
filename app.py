@@ -47,7 +47,7 @@ def main():
     st.sidebar.title("Input selection")
 
     # Enter access key
-    account_key = st.sidebar.text_input("account_key")
+    account_key = st.sidebar.text_input("account_key", value=None)
 
     # Choose image
     metadata = MetadataStore()
@@ -55,17 +55,17 @@ def main():
     if account_key is not None:
         metadata.read_from_azure(account_key)
 
-    filter_label = st.sidebar.selectbox("Filter Label", metadata.get_unique_labels())
+        filter_label = st.sidebar.selectbox("Filter Label", metadata.get_unique_labels())
 
-    img = None
-    if filter_label is not None:
-        image_filename = st.sidebar.selectbox("Image Filename", metadata.get_image_filenames(filter_label))
+        img = None
+        if filter_label is not None:
+            image_filename = st.sidebar.selectbox("Image Filename", metadata.get_image_filenames(filter_label))
 
-        if image_filename is not None:
-            st.write("Store label : "+metadata.get_full_label(image_filename))
+            if image_filename is not None:
+                st.write("Store label : "+metadata.get_full_label(image_filename))
 
-            blob_data = get_image_from_azure(account_key,image_filename)
-            img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+                blob_data = get_image_from_azure(account_key,image_filename)
+                img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
 
     # Upload image
     uploaded_file = st.sidebar.file_uploader("Upload files", type=["png", "jpeg", "jpg"])
@@ -73,6 +73,8 @@ def main():
     if uploaded_file is not None:
         # Load image
         img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
+    else:
+        img = None
 
     if img is not None:
         img_tensor = to_tensor(img)

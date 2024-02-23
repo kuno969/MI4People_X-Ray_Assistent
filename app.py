@@ -123,11 +123,11 @@ def main():
         p.requires_grad_(False)
 
     # CAM selection
-    cam_method = st.sidebar.selectbox(
-        "CAM method",
-        CAM_METHODS,
-        help="The way your class activation map will be computed",
-    )
+    # cam_method = st.sidebar.selectbox(
+    #     "CAM method",
+    #     CAM_METHODS,
+    #     help="The way your class activation map will be computed",
+    # )
 
     # For newline
     st.sidebar.write("\n")

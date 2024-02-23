@@ -160,8 +160,8 @@ def main():
         else:
             if model is None:
                 st.sidebar.error("Please select a classification model")
-            elif cam_method is None:
-                st.sidebar.error("Please select CAM method.")
+            # elif cam_method is None:
+            #     st.sidebar.error("Please select CAM method.")
             else:
                 with st.spinner("Analyzing..."):
                     result_cols = [None for i in range(NUM_RESULTS)]

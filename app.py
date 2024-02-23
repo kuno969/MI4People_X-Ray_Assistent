@@ -32,6 +32,7 @@ CAM_METHODS = [
 ]
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 5
+N_IMAGES = 10
 
 
 def main():
@@ -60,6 +61,9 @@ def main():
 
     img = None
 
+    if "current_index" not in st.session_state:
+        st.session_state.current_index = 0
+
     if account_key is not None:
         container_client = setup_container_client(account_key)
 
@@ -71,35 +75,25 @@ def main():
 
         img = None
         if filter_label is not None:
-            image_filename = st.sidebar.selectbox(
-                "Image Filename", metadata.get_image_filenames(filter_label)
-            )
+            image_filenames = metadata.get_random_image_filenames(filter_label, N_IMAGES)
 
-            if image_filename is not None:
-                st.write("Store label : " + metadata.get_full_label(image_filename))
+        
+        # if filter_label is not None:
+        #     image_filename = st.sidebar.selectbox(
+        #         "Image Filename", metadata.get_image_filenames(filter_label)
+        #     )
 
-                blob_data = get_image_from_azure(container_client, image_filename)
-                img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+        #     if image_filename is not None:
+        #         
 
-    # Upload image
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload files", type=["png", "jpeg", "jpg"]
-    )
+    # # Upload image
+    # uploaded_file = st.sidebar.file_uploader(
+    #     "Upload files", type=["png", "jpeg", "jpg"]
+    # )
 
-    if uploaded_file is not None:
-        # Load image
-        img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
-
-    if img is not None:
-        img_tensor = to_tensor(img)
-
-        # Show imputs
-        with input_col:
-            fig1, ax1 = plt.subplots()
-            ax1.axis("off")
-            ax1.imshow(to_pil_image(img_tensor))
-            st.header("Input X-ray image")
-            st.pyplot(fig1)
+    # if uploaded_file is not None:
+    #     # Load image
+    #     img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
 
     # Model selection
     st.sidebar.title("Setup")
@@ -142,7 +136,25 @@ def main():
     feedback_comment = [None for i in range(NUM_RESULTS)]
     feedback_ok = [False for i in range(NUM_RESULTS)]
 
-    if st.sidebar.button("Diagnose"):
+    if st.sidebar.button("Diagnose Next"):
+
+        image_filename = image_filenames[st.session_state.current_index]
+
+        st.write("Store label : " + metadata.get_full_label(image_filename))
+
+        blob_data = get_image_from_azure(container_client, image_filename)
+        img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+
+        if img is not None:
+            img_tensor = to_tensor(img)
+
+            # Show imputs
+            with input_col:
+                fig1, ax1 = plt.subplots()
+                ax1.axis("off")
+                ax1.imshow(to_pil_image(img_tensor))
+                st.header("Input X-ray image")
+                st.pyplot(fig1)
         if img is None:
             st.sidebar.error("Please upload an image first")
         else:
@@ -268,6 +280,10 @@ def main():
                             st.subheader("Feedback summary")
                             st.write(str(feedback.get_data()))
 
+        if st.session_state.current_index < N_IMAGES:
+            st.session_state.current_index += 1
+        else:
+            st.write("No more images to diagnose")
 
 if __name__ == "__main__":
     main()

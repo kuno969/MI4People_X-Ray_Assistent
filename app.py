@@ -2,6 +2,7 @@ from io import BytesIO
 
 import matplotlib.pyplot as plt
 import streamlit as st
+import plotly.express as px
 
 import torch
 from torchvision.transforms.functional import to_tensor, to_pil_image
@@ -33,16 +34,17 @@ CAM_METHODS = [
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 5
 N_IMAGES = 10
+RESULTS_PER_ROW = 3
 
 
 def main():
     # Wide mode
-    st.set_page_config(layout="wide")
+    st.set_page_config(page_title="Chest X-ray Investigation", page_icon="🚑", layout="centered", initial_sidebar_state="collapsed")
 
     # Designing the interface
     st.title("Chest X-ray Investigation")
     # For newline
-    st.write("\n")
+    st.write("This is a tool to evaluate AI predictions on chest X-ray images. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla nec purus feugiat, molestie ipsum et, consequat nibh. Ut sit amet odio eu est aliquet euismod a ante")
 
     # Sidebar
     # File selection
@@ -63,15 +65,22 @@ def main():
 
             metadata.read_from_azure(container_client)
 
-            filter_label = st.sidebar.selectbox(
-                "Filter Label", metadata.get_unique_labels()
-            )
+            # TODO: Add possibility to filter by label or not (maybe through checkboxes or a multiselectbox)
+            # We need metadataStore for that, so load beforehand
+            # Also we need to reload image_filenames when we change the filter
+            # Is there a on_change event for selectbox?
 
-            img = None
-            if filter_label is not None:
-                image_filenames = metadata.get_random_image_filenames(
-                    filter_label, N_IMAGES
-                )
+            # filter_label = st.sidebar.selectbox(
+            #     "Filter Label", metadata.get_unique_labels()
+            # )
+
+            # img = None
+            # if filter_label is not None:
+            #     image_filenames = metadata.get_random_image_filenames(
+            #         N_IMAGES, filter_label
+            #     )
+
+            image_filenames = metadata.get_random_image_filenames(N_IMAGES)
 
             images = []
             for image_filename in image_filenames:
@@ -143,21 +152,21 @@ def main():
 def diagnose(
     img: dict, model: torch.nn.Module, cam_choices: list, model_lib: XRVModelLibrary
 ):
-    input_col, general_feedback_col = st.columns(2)
+    # input_col = st.columns(1)
 
     blob_data = get_image_from_azure(st.session_state["container_client"], img["filename"])
     img_data = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
 
     img_tensor = to_tensor(img_data)
 
-    with input_col:
-        fig1, ax1 = plt.subplots(figsize=(5, 5))
-        ax1.axis("off")
-        ax1.imshow(to_pil_image(img_tensor))
-        st.header("Input X-ray image")
-        st.pyplot(fig1)
+    # with input_col:
+    fig1, ax1 = plt.subplots(figsize=(3, 3))
+    ax1.axis("off")
+    ax1.imshow(to_pil_image(img_tensor))
+    st.header("Input X-ray image")
+    st.pyplot(fig1)
 
-    st.write("Store label : " + img["label"])
+    st.write(f"Store label: {img['label']}")
 
     feedback = Feedback()
 
@@ -184,12 +193,15 @@ def diagnose(
 
             # Show results
             with st.form("form"):
+
+                result_tabs = st.tabs([f"Result {i+1}" for i in range(NUM_RESULTS)])
+
                 for i in range(NUM_RESULTS):
-                    result_cols[i], feedback_cols[i] = (
-                        st.container(),
-                        st.container(),
-                    )
-                    st.divider()
+                    with result_tabs[i]:
+                        result_cols[i], feedback_cols[i] = (
+                            st.container(),
+                            st.container(),
+                        )
 
                 for i in range(NUM_RESULTS):
                     cam_extractors = []
@@ -203,7 +215,11 @@ def diagnose(
                         )
                         cam_extractors.append(cam_extractor_method)
 
-                    fig2, ax2 = plt.subplots(ncols=len(cam_extractors), figsize=(20, 5))
+                    # fig2 = plt.figure()
+                    # fig2.tight_layout()
+                    # plt.rcParams['figure.facecolor'] = st.get_option("theme.backgroundColor")
+                        
+                    figs = []
 
                     for idx, cam_extractor in enumerate(cam_extractors):
                         # Forward
@@ -230,36 +246,45 @@ def diagnose(
                         cam_extractor._hooks_enabled = False
 
                         result = overlay_mask(
-                            to_pil_image(transformed_img.expand(3, -1, -1)),
+                            # to_pil_image(transformed_img.expand(3, -1, -1)),
+                            img_data,
                             to_pil_image(activation_map.squeeze(0), mode="F"),
                             alpha=0.7,
                         )
 
-                        # plot result on respective axis
-                        ax2[idx].set_title(CAM_METHODS[idx])
-                        ax2[idx].axis("off")
-                        ax2[idx].imshow(result)
+                        fig = px.imshow(result)
+                        fig.update_xaxes(visible=False)
+                        fig.update_yaxes(visible=False)
+                        figs.append(fig)
+
+                        # row = idx // RESULTS_PER_ROW
+                        # col = idx % RESULTS_PER_ROW
+
+                        # ax2 = fig2.add_axes([0.1 + col * 0.3, 0.1 + row * 0.3, 0.25, 0.25])
+                        # ax2.set_title(cam_choices[idx])
                         # ax2.axis("off")
                         # ax2.imshow(result)
 
                     with result_cols[i]:
                         class_label = model_lib.LABELS[class_ids[i].item()]
-                        st.header("Result %d : %s" % (i + 1, class_label))
-                        st.pyplot(fig2)
+                        st.header(f"Finding: {class_label}")
+                        tabs = st.tabs(cam_choices)
+                        for idx, tab in enumerate(tabs):
+                            with tab:
+                                st.plotly_chart(figs[idx], use_container_width=True, theme="streamlit")
+                        # st.pyplot(fig2)
+                        # components.html(mpld3.fig_to_html(fig2), height=500, width=500)
 
                     with feedback_cols[i]:
-                        st.write("")
                         probability = out.squeeze(0)[class_ids[i]].item() * 100
-                        st.write("**Probability** : %0.2f %%" % (probability,))
-                        feedback_ok[i] = st.checkbox(
-                            "Confirm", key="Confirm-%d" % (i + 1)
-                        )
-                        feedback_comment[i] = st.text_area(
-                            "Comment", key="Comment-%d" % (i + 1)
-                        )
+                        st.write(f"**Probability** : {probability:.2f}%")
+                        feedback_ok[i] = st.checkbox("Confirm Finding", key=f"confirm{i}")
+                        feedback_comment[i] = st.text_area("Comment", key=f"comment{i}")
 
                 st.form_submit_button(
                     "Next Patient",
+                    use_container_width=True,
+                    type="primary",
                     on_click=lambda: give_feedback(
                         feedback, feedback_ok, feedback_comment
                     ),

@@ -60,15 +60,19 @@ class MetadataStore:
             "Image Index"
         ].to_list()
 
-    def get_random_image_filenames(self, label: str, n: int) -> list[str]:
-        return random.sample(
-            self._df[self._df["Finding Labels"].str.contains(label)][
-                "Image Index"
-            ].to_list(),
-            n,
-        )
+    def get_random_image_filenames(self, n: int, label: str = None) -> list[str]:
+        if label is None:
+            return random.sample(self._df["Image Index"].to_list(), n)
+        else:
+            return random.sample(
+                self._df[self._df["Finding Labels"].str.contains(label)][
+                    "Image Index"
+                ].to_list(),
+                n,
+            )
 
     def get_full_label(self, image_filename: str) -> str:
-        return self._df[self._df["Image Index"] == image_filename][
+        labels = self._df[self._df["Image Index"] == image_filename][
             "Finding Labels"
         ].to_list()[0]
+        return ", ".join(labels.split("|"))

@@ -36,8 +36,6 @@ N_IMAGES = 10
 
 
 def main():
-    feedback = Feedback()
-
     # Wide mode
     st.set_page_config(layout="wide")
 
@@ -46,9 +44,6 @@ def main():
     # For newline
     st.write("\n")
 
-    # Layout
-    input_col, general_feedback_col = st.columns(2)
-
     # Sidebar
     # File selection
     st.sidebar.title("Input selection")
@@ -56,44 +51,38 @@ def main():
     # Enter access key
     account_key = st.sidebar.text_input("account_key", value=None)
 
-    # Choose image
-    metadata = MetadataStore()
-
-    img = None
-
     if "current_index" not in st.session_state:
         st.session_state.current_index = 0
 
-    if account_key is not None:
-        container_client = setup_container_client(account_key)
+    if "images" not in st.session_state:
 
-        metadata.read_from_azure(container_client)
+        metadata = MetadataStore()
 
-        filter_label = st.sidebar.selectbox(
-            "Filter Label", metadata.get_unique_labels()
-        )
+        if account_key is not None:
+            container_client = setup_container_client(account_key)
 
-        img = None
-        if filter_label is not None:
-            image_filenames = metadata.get_random_image_filenames(filter_label, N_IMAGES)
+            metadata.read_from_azure(container_client)
 
-        
-        # if filter_label is not None:
-        #     image_filename = st.sidebar.selectbox(
-        #         "Image Filename", metadata.get_image_filenames(filter_label)
-        #     )
+            filter_label = st.sidebar.selectbox(
+                "Filter Label", metadata.get_unique_labels()
+            )
 
-        #     if image_filename is not None:
-        #         
+            img = None
+            if filter_label is not None:
+                image_filenames = metadata.get_random_image_filenames(
+                    filter_label, N_IMAGES
+                )
 
-    # # Upload image
-    # uploaded_file = st.sidebar.file_uploader(
-    #     "Upload files", type=["png", "jpeg", "jpg"]
-    # )
+            images = []
+            for image_filename in image_filenames:
+                img = {
+                    "filename": image_filename,
+                    "label": metadata.get_full_label(image_filename),
+                }
+                images.append(img)
 
-    # if uploaded_file is not None:
-    #     # Load image
-    #     img = Image.open(BytesIO(uploaded_file.read()), mode="r").convert("RGB")
+            st.session_state["images"] = images
+            st.session_state["container_client"] = container_client
 
     # Model selection
     st.sidebar.title("Setup")
@@ -132,158 +121,168 @@ def main():
     # For newline
     st.sidebar.write("\n")
 
-    feedback_submitted = None
+    # st.sidebar.multiselect(
+    #     "CAM choices",
+    #     CAM_METHODS,
+    #     help="The way your class activation map will be computed",
+    #     max_selections=3,
+    #     key="cam_choices",
+    #     default=["GradCAM", "GradCAMpp"]
+    # )
+
+    # cam_choices = st.session_state["cam_choices"]
+
+    cam_choices = CAM_METHODS
+
+    if "images" in st.session_state:
+        image = st.session_state.images[st.session_state.current_index]
+
+        diagnose(image, model, cam_choices, model_lib)
+
+
+def diagnose(
+    img: dict, model: torch.nn.Module, cam_choices: list, model_lib: XRVModelLibrary
+):
+    input_col, general_feedback_col = st.columns(2)
+
+    blob_data = get_image_from_azure(st.session_state["container_client"], img["filename"])
+    img_data = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+
+    img_tensor = to_tensor(img_data)
+
+    with input_col:
+        fig1, ax1 = plt.subplots(figsize=(5, 5))
+        ax1.axis("off")
+        ax1.imshow(to_pil_image(img_tensor))
+        st.header("Input X-ray image")
+        st.pyplot(fig1)
+
+    st.write("Store label : " + img["label"])
+
+    feedback = Feedback()
+
     feedback_comment = [None for i in range(NUM_RESULTS)]
     feedback_ok = [False for i in range(NUM_RESULTS)]
 
-    if st.sidebar.button("Diagnose Next"):
+    if model is None:
+        st.sidebar.error("Please select a classification model")
+    # elif cam_method is None:
+    #     st.sidebar.error("Please select CAM method.")
+    else:
+        with st.spinner("Analyzing..."):
+            result_cols = [None for i in range(NUM_RESULTS)]
+            feedback_cols = [None for i in range(NUM_RESULTS)]
 
-        image_filename = image_filenames[st.session_state.current_index]
+            # Preprocess image
+            transformed_img, rescaled_img = model_lib.preprocess(img_tensor)
 
-        st.write("Store label : " + metadata.get_full_label(image_filename))
+            rescaled_img.requires_grad_(True)
 
-        blob_data = get_image_from_azure(container_client, image_filename)
-        img = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+            if torch.cuda.is_available():
+                model = model.cuda()
+                rescaled_img = rescaled_img.cuda()
 
-        if img is not None:
-            img_tensor = to_tensor(img)
+            # Show results
+            with st.form("form"):
+                for i in range(NUM_RESULTS):
+                    result_cols[i], feedback_cols[i] = (
+                        st.container(),
+                        st.container(),
+                    )
+                    st.divider()
 
-            # Show imputs
-            with input_col:
-                fig1, ax1 = plt.subplots()
-                ax1.axis("off")
-                ax1.imshow(to_pil_image(img_tensor))
-                st.header("Input X-ray image")
-                st.pyplot(fig1)
-        if img is None:
-            st.sidebar.error("Please upload an image first")
-        else:
-            if model is None:
-                st.sidebar.error("Please select a classification model")
-            # elif cam_method is None:
-            #     st.sidebar.error("Please select CAM method.")
-            else:
-                with st.spinner("Analyzing..."):
-                    result_cols = [None for i in range(NUM_RESULTS)]
-                    feedback_cols = [None for i in range(NUM_RESULTS)]
+                for i in range(NUM_RESULTS):
+                    cam_extractors = []
+                    # Initialize CAM
 
-                    # Preprocess image
-                    transformed_img, rescaled_img = model_lib.preprocess(img_tensor)
+                    for cam_method in cam_choices:
+                        cam_extractor_method = methods.__dict__[cam_method](
+                            model,
+                            target_layer=model_lib.TARGET_LAYER,
+                            enable_hooks=False,
+                        )
+                        cam_extractors.append(cam_extractor_method)
 
-                    rescaled_img.requires_grad_(True)
+                    fig2, ax2 = plt.subplots(ncols=len(cam_extractors), figsize=(20, 5))
 
-                    if torch.cuda.is_available():
-                        model = model.cuda()
-                        rescaled_img = rescaled_img.cuda()
+                    for idx, cam_extractor in enumerate(cam_extractors):
+                        # Forward
+                        cam_extractor._hooks_enabled = True
 
-                    # Show results
-                    with st.form("form"):
-                        for i in range(NUM_RESULTS):
-                            result_cols[i], feedback_cols[i] = (
-                                st.container(),
-                                st.container(),
-                            )
-                            st.divider()
+                        model.zero_grad()
+                        out = model(rescaled_img.unsqueeze(0))
 
-                        # Somehow this returns the same activation map disregarding the class per method
-                        # Why is this happening?
+                        # Select the target class
+                        class_ids = torch.topk(out.squeeze(0), NUM_RESULTS).indices
 
-                        for i in range(NUM_RESULTS):
+                        activation_maps = cam_extractor(
+                            class_idx=class_ids[i].item(), scores=out
+                        )
 
-                            cam_extractors = []
-                            # Initialize CAM
+                        # Fuse the CAMs if there are several
+                        activation_map = (
+                            activation_maps[0]
+                            if len(activation_maps) == 1
+                            else cam_extractor.fuse_cams(activation_maps)
+                        )
 
-                            for cam_method in CAM_METHODS:
-                                cam_extractor_method = methods.__dict__[cam_method](
-                                    model,
-                                    target_layer=model_lib.TARGET_LAYER,
-                                    enable_hooks=False,
-                                )
-                                cam_extractors.append(cam_extractor_method)
+                        cam_extractor.remove_hooks()
+                        cam_extractor._hooks_enabled = False
 
-                            fig2, ax2 = plt.subplots(
-                                ncols=len(cam_extractors), figsize=(20, 5)
-                            )
+                        result = overlay_mask(
+                            to_pil_image(transformed_img.expand(3, -1, -1)),
+                            to_pil_image(activation_map.squeeze(0), mode="F"),
+                            alpha=0.7,
+                        )
 
-                            for idx, cam_extractor in enumerate(cam_extractors):
-                                # Forward
-                                cam_extractor._hooks_enabled = True
+                        # plot result on respective axis
+                        ax2[idx].set_title(CAM_METHODS[idx])
+                        ax2[idx].axis("off")
+                        ax2[idx].imshow(result)
+                        # ax2.axis("off")
+                        # ax2.imshow(result)
 
-                                model.zero_grad()
-                                out = model(rescaled_img.unsqueeze(0))
+                    with result_cols[i]:
+                        class_label = model_lib.LABELS[class_ids[i].item()]
+                        st.header("Result %d : %s" % (i + 1, class_label))
+                        st.pyplot(fig2)
 
-                                print(CAM_METHODS[idx])
-                                print(out.requires_grad)
+                    with feedback_cols[i]:
+                        st.write("")
+                        probability = out.squeeze(0)[class_ids[i]].item() * 100
+                        st.write("**Probability** : %0.2f %%" % (probability,))
+                        feedback_ok[i] = st.checkbox(
+                            "Confirm", key="Confirm-%d" % (i + 1)
+                        )
+                        feedback_comment[i] = st.text_area(
+                            "Comment", key="Comment-%d" % (i + 1)
+                        )
 
-                                # Select the target class
-                                class_ids = torch.topk(
-                                    out.squeeze(0), NUM_RESULTS
-                                ).indices
+                st.form_submit_button(
+                    "Next Patient",
+                    on_click=lambda: give_feedback(
+                        feedback, feedback_ok, feedback_comment
+                    ),
+                )
 
-                                activation_maps = cam_extractor(
-                                    class_idx=class_ids[i].item(), scores=out
-                                )
 
-                                # Fuse the CAMs if there are several
-                                activation_map = (
-                                    activation_maps[0]
-                                    if len(activation_maps) == 1
-                                    else cam_extractor.fuse_cams(activation_maps)
-                                )
+def give_feedback(feedback: Feedback, feedback_ok: list, feedback_comment: list):
 
-                                cam_extractor.remove_hooks()
-                                cam_extractor._hooks_enabled = False
+    for i in range(NUM_RESULTS):
+        feedback_dict = {
+            "confirm": str(feedback_ok[i]),
+            "comment": str(feedback_comment[i]),
+        }
 
-                                result = overlay_mask(
-                                    to_pil_image(transformed_img.expand(3, -1, -1)),
-                                    to_pil_image(activation_map.squeeze(0), mode="F"),
-                                    alpha=0.7,
-                                )
+        feedback.insert(f"result{i}", feedback_dict)
 
-                                # plot result on respective axis
-                                ax2[idx].set_title(CAM_METHODS[idx])
-                                ax2[idx].axis("off")
-                                ax2[idx].imshow(result)
-                                # ax2.axis("off")
-                                # ax2.imshow(result)
-                                
+    if st.session_state.current_index < N_IMAGES:
+        st.session_state.current_index += 1
+    else:
+        st.write("No more images to diagnose")
 
-                            with result_cols[i]:
-                                class_label = model_lib.LABELS[class_ids[i].item()]
-                                st.header("Result %d : %s" % (i + 1, class_label))
-                                st.pyplot(fig2)
+    print(feedback.get_data())
 
-                            with feedback_cols[i]:
-                                st.write("")
-                                probability = out.squeeze(0)[class_ids[i]].item() * 100
-                                st.write("**Probability** : %0.2f %%" % (probability,))
-                                feedback_ok[i] = st.checkbox(
-                                    "Confirm", key="Confirm-%d" % (i + 1)
-                                )
-                                feedback_comment[i] = st.text_area(
-                                    "Comment", key="Comment-%d" % (i + 1)
-                                )
-
-                        feedback_submitted = st.form_submit_button("Submit")
-
-                    if feedback_submitted:
-                        feedback = Feedback()
-                        for i in range(NUM_RESULTS):
-                            feedback.insert(
-                                "result%d_confirm" % (i), str(feedback_ok[i])
-                            )
-                            feedback.insert(
-                                "result%d_comment" % (i), str(feedback_comment[i])
-                            )
-
-                        with general_feedback_col:
-                            st.subheader("Feedback summary")
-                            st.write(str(feedback.get_data()))
-
-        if st.session_state.current_index < N_IMAGES:
-            st.session_state.current_index += 1
-        else:
-            st.write("No more images to diagnose")
 
 if __name__ == "__main__":
     main()

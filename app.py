@@ -32,23 +32,23 @@ CAM_METHODS = [
     "ISCAM",
 ]
 MODEL_SOURCES = ["XRV"]
-NUM_RESULTS = 5
+NUM_RESULTS = 3
 N_IMAGES = 10
 RESULTS_PER_ROW = 3
 
 
 def main():
     # Wide mode
-    st.set_page_config(page_title="Chest X-ray Investigation", page_icon="🚑", layout="centered", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="Chest X-ray Investigation", page_icon="🚑", layout="centered", initial_sidebar_state="expanded")
 
     # Designing the interface
     st.title("Chest X-ray Investigation")
-    # For newline
-    st.write("This is a tool to evaluate AI predictions on chest X-ray images. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla nec purus feugiat, molestie ipsum et, consequat nibh. Ut sit amet odio eu est aliquet euismod a ante")
 
     # Sidebar
     # File selection
     st.sidebar.title("Input selection")
+
+    st.sidebar.write("This is a tool to evaluate AI predictions on chest X-ray images. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla nec purus feugiat, molestie ipsum et, consequat nibh. Ut sit amet odio eu est aliquet euismod a ante")
 
     # Enter access key
     account_key = st.sidebar.text_input("account_key", value=None)
@@ -94,23 +94,27 @@ def main():
             st.session_state["container_client"] = container_client
 
     # Model selection
-    st.sidebar.title("Setup")
+    st.sidebar.title("How-To")
 
-    model_source = st.sidebar.selectbox(
-        "Classification model source",
-        MODEL_SOURCES,
-        help="Supported models from Torchxrayvision",
-    )
+    # model_source = st.sidebar.selectbox(
+    #     "Classification model source",
+    #     MODEL_SOURCES,
+    #     help="Supported models from Torchxrayvision",
+    # )
 
-    model_lib = AbstractModelLibrary()
-    if model_source is not None:
-        if model_source == "XRV":
-            model_lib = XRVModelLibrary()
+    # model_lib = AbstractModelLibrary()
+    # if model_source is not None:
+    #     if model_source == "XRV":
+    #         model_lib = XRVModelLibrary()
 
-    model_choice = st.sidebar.selectbox(
-        "Model choice",
-        model_lib.CHOICES,
-    )
+    # model_choice = st.sidebar.selectbox(
+    #     "Model choice",
+    #     model_lib.CHOICES,
+    # )
+
+    model_source = "XRV"
+    model_lib = XRVModelLibrary()
+    model_choice = "densenet121-res224-all"
 
     model = None
     if model_source is not None:

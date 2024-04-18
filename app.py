@@ -243,6 +243,7 @@ def diagnose(
                             st.selectbox(
                                 "Best CAM method*",
                                 cam_choices,
+                                index=None,
                                 help="The best CAM method for this image",
                                 key=f"best_cam_method{st.session_state.num_result}",
                                 placeholder="Select the best CAM method",

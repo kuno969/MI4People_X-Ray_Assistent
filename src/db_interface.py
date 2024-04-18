@@ -18,6 +18,12 @@ def setup_container_client(account_key: str) -> ContainerClient:
     return container_client
 
 
+def write_data_to_azure_blob(
+    container_client: ContainerClient, blob_name: str, data: bytes
+) -> None:
+    container_client.upload_blob(blob_name, data, overwrite=True)
+
+
 def read_data_from_azure_blob(
     container_client: ContainerClient, blob_name: str
 ) -> bytes:

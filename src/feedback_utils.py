@@ -1,6 +1,8 @@
+from collections import defaultdict
+
 class Feedback:
     def __init__(self) -> None:
-        self._data = {}
+        self._data = defaultdict(list)
         self._gdpr_ok = False
 
     def set_gdpr_ok(self) -> None:
@@ -10,7 +12,7 @@ class Feedback:
         self._gdpr_ok = False
 
     def insert(self, key: str, value: str) -> None:
-        self._data[key] = value
+        self._data[key].append(value)
 
     def get_data(self) -> dict[str, str]:
         return self._data

@@ -1,3 +1,4 @@
 **/*.pyc
 venv/
 meta.csv
+feedback_*

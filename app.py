@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -15,7 +16,7 @@ from PIL import Image
 
 from src.model_library import XRVModelLibrary, AbstractModelLibrary
 from src.feedback_utils import Feedback
-from src.db_interface import MetadataStore, get_image_from_azure, setup_container_client
+from src.db_interface import MetadataStore, get_image_from_azure, setup_container_client, write_data_to_azure_blob
 
 
 # All supported CAM
@@ -43,7 +44,7 @@ def main():
     st.set_page_config(page_title="Chest X-ray Investigation", page_icon="🚑", layout="wide", initial_sidebar_state="collapsed")
 
     # Designing the interface
-    st.title("Chest X-ray Investigation")
+    # st.title("Chest X-ray Investigation")
 
     # Sidebar
     st.sidebar.title("How-To")
@@ -59,6 +60,8 @@ def main():
     if "images" not in st.session_state:
 
         metadata = MetadataStore()
+        st.session_state["feedback"] = Feedback()
+        
 
         if account_key is not None:
             container_client = setup_container_client(account_key)
@@ -179,9 +182,6 @@ def diagnose(
 
             st.write(f"Store label: {img['label']}")
 
-    # TODO: This needs to be moved out of here, as the function is called multiple times between runs
-    feedback = Feedback()
-
     if model is None:
         st.sidebar.error("Please select a classification model")
     # elif cam_method is None:
@@ -261,9 +261,7 @@ def diagnose(
                         use_container_width=True,
                         type="primary",
                         # key="submit_button",
-                        on_click=lambda: give_feedback(
-                            feedback
-                        ),
+                        on_click=give_feedback,
                     )
 
 def activate_feedback(feedback: Feedback):
@@ -329,7 +327,7 @@ def compute_cam(cam_choices: list, model: torch.nn.Module, model_lib, rescaled_i
         fig.update_yaxes(visible=False)
         # figs.append(fig)
     
-    fig.update_layout(height=700, width=800, margin=dict(l=20, r=20, t=50, b=20))
+    fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
 
         
 
@@ -341,25 +339,47 @@ def compute_cam(cam_choices: list, model: torch.nn.Module, model_lib, rescaled_i
     return fig, class_ids, out
 
 
-def give_feedback(feedback: Feedback):
+def give_feedback():
 
     # for i in range(NUM_RESULTS):
-    feedback_dict = {
+    selection_dict = {
         "confirm": st.session_state[f"confirm{st.session_state.num_result}"],
         "comment": st.session_state[f"comment{st.session_state.num_result}"],
         "best_cam_method": st.session_state[f"best_cam_method{st.session_state.num_result}"],
     }
 
-    feedback.insert(f"result{st.session_state.num_result}", feedback_dict)
+    image_name = st.session_state.images[st.session_state.current_index]["filename"]
 
-    print(feedback.get_data())
+    feedback_dict = {
+        "result": st.session_state.num_result,
+        "selection": selection_dict,
+    }
+
+    st.session_state["feedback"].insert(image_name, feedback_dict)
 
     if st.session_state.num_result == NUM_RESULTS - 1:
         st.session_state.current_index += 1
         st.session_state.num_result = 0
+        feedback_json = json.dumps(dict(st.session_state["feedback"].get_data()), indent=4)
+        write_data_to_azure_blob(
+            st.session_state["container_client"],
+            f"feedback/feedback_{_get_session().id}.json",
+            feedback_json,
+        )
     else:
         st.session_state.num_result += 1
+
+def _get_session():
+    from streamlit.runtime import get_instance
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    runtime = get_instance()
+    session_id = get_script_run_ctx().session_id
+    session_info = runtime._session_mgr.get_session_info(session_id)
+    if session_info is None:
+        raise RuntimeError("Couldn't get your Streamlit Session object.")
+    return session_info.session
 
 
 if __name__ == "__main__":
     main()
+

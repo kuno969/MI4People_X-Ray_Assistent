@@ -2,3 +2,4 @@
 venv/
 meta.csv
 feedback_*
+.env

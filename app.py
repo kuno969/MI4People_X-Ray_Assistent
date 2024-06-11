@@ -1,11 +1,12 @@
 from io import BytesIO
 import json
 import os
+import requests
 
 import matplotlib.pyplot as plt
 import streamlit as st
-# import plotly.express as px
-# from plotly.subplots import make_subplots
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 from PIL import Image
 
@@ -18,19 +19,17 @@ from src.db_interface import MetadataStore, get_image_from_azure, setup_containe
 
 # Supported CAMs for multiple target layers
 CAM_METHODS = [
-    "GradCAM",
-    "GradCAMpp",
-    "SmoothGradCAMpp",
-    "XGradCAM",
-    "LayerCAM",
-    "ScoreCAM",
-    "SSCAM",
-    "ISCAM",
+    "gradcam", 
+    "layercam",
+    "smoothgradcam",
+    "xgradcam"
 ]
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 3
 N_IMAGES = 10
 RESULTS_PER_ROW = 3
+
+FUNCTION_URL = os.environ["FUNCTION_URL"] + "?code=" + os.environ["FUNCTION_KEY"]
 
 
 def main():
@@ -137,8 +136,32 @@ def diagnose(
 
     input_col, result_col = st.columns([0.5, 0.5], gap="medium")
 
-    blob_data = get_image_from_azure(st.session_state["container_client"], img["filename"])
-    img_data = Image.open(BytesIO(blob_data.read()), mode="r").convert("RGB")
+    blob_data = get_image_from_azure(st.session_state["container_client"], img["filename"]).read()
+    img_data = Image.open(BytesIO(blob_data), mode="r").convert("RGB")
+
+    with st.spinner("Analyzing..."):
+        if st.session_state.num_result == 0:
+
+                data = {
+                    "method": cam_choices,
+                    "k": "5",
+                }
+
+                files = {
+                    "image": BytesIO(blob_data)
+                }
+
+                st.session_state["model_result"] = requests.post(FUNCTION_URL, data=data, files=files).json()
+
+    class_label = list(st.session_state["model_result"]["predictions"].keys())[st.session_state.num_result]
+    probability = st.session_state["model_result"]["predictions"][class_label]
+
+    cam_heatmaps = {}
+    for cam_method in cam_choices:
+        cam_heatmaps[cam_method] = get_image_from_azure(st.session_state["container_client"], st.session_state["model_result"]["cam"][cam_method][class_label], prefix="")
+
+    cam_fig = draw_cam(cam_heatmaps, cam_choices)
+
 
     with input_col:
         with st.container(border=True):
@@ -153,7 +176,7 @@ def diagnose(
             st.write(f"Store label: {img['label']}")
 
     with result_col:
-        with st.spinner("Analyzing..."):
+        
             # Show results
             with st.form("form"):
 
@@ -169,20 +192,11 @@ def diagnose(
                 result_container = st.container()
                 feedback_container = st.container()
 
-                # TODO: we get the response from az function here
-                # Structure of response?
-                # What is already in there?
-                # We need at least class_label + probability + cam_heatmaps
-                # How do we cycle through the different results (pathologies) without sending multiple requests?
-                # Maybe look at sesstion_state.num_result and only send the next request if it is zero
-
-                # Also we need a function to plot gradcam heatmaps, see compute_cam function
 
                 with result_container:
-                    class_label = "test"
                     st.header(f"Finding: {class_label} ({(st.session_state.num_result + 1)}/{NUM_RESULTS})")
                     st.session_state["finding"] = class_label
-                    st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+                    st.plotly_chart(cam_fig, use_container_width=True, theme="streamlit")
                     # tabs = st.tabs(cam_choices)
                     # for idx, tab in enumerate(tabs):
                     #     with tab:
@@ -234,74 +248,32 @@ def activate_feedback(feedback: Feedback):
         st.session_state["submit_button"].disabled = False
 
 
-# def compute_cam(cam_choices: list, model: torch.nn.Module, model_lib, rescaled_img, img_data) -> None:
-#     cam_extractors = []
-#     # Initialize CAM
-
-#     for cam_method in cam_choices:
-#         cam_extractor_method = methods.__dict__[cam_method](
-#             model,
-#             target_layer=model_lib.TARGET_LAYER,
-#             enable_hooks=False,
-#         )
-#         cam_extractors.append(cam_extractor_method)
-
-#     # fig2 = plt.figure()
-#     # fig2.tight_layout()
-#     # plt.rcParams['figure.facecolor'] = st.get_option("theme.backgroundColor")
-        
-#     fig = make_subplots(rows=3, cols=3, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
-
-#     for idx, cam_extractor in enumerate(cam_extractors):
-#         # Forward
-#         cam_extractor._hooks_enabled = True
-
-#         model.zero_grad()
-#         out = model(rescaled_img.unsqueeze(0))
-
-#         # Select the target class
-#         class_ids = torch.topk(out.squeeze(0), NUM_RESULTS).indices
-
-#         activation_maps = cam_extractor(
-#             class_idx=class_ids[st.session_state.num_result].item(), scores=out
-#         )
-
-#         # Fuse the CAMs if there are several
-#         activation_map = (
-#             activation_maps[0]
-#             if len(activation_maps) == 1
-#             else cam_extractor.fuse_cams(activation_maps)
-#         )
-
-#         cam_extractor.remove_hooks()
-#         cam_extractor._hooks_enabled = False
-
-#         result = overlay_mask(
-#             # to_pil_image(transformed_img.expand(3, -1, -1)),
-#             img_data,
-#             to_pil_image(activation_map.squeeze(0), mode="F"),
-#             alpha=0.7,
-#         )
-
-#         row = idx // RESULTS_PER_ROW
-#         col = idx % RESULTS_PER_ROW
-
-#         # fig.add_image(result, row=row + 1, col=col + 1)
-#         fig.add_trace(px.imshow(result).data[0], row=row + 1, col=col + 1)
-#         fig.update_xaxes(visible=False)
-#         fig.update_yaxes(visible=False)
-#         # figs.append(fig)
+def draw_cam(cam_heatmaps: dict, cam_choices) -> None:
     
-#     fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
+    fig = make_subplots(rows=3, cols=3, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
+
+    for idx, cam in enumerate(cam_choices):
+        
+        result = Image.open(BytesIO(cam_heatmaps[cam].read()), mode="r").convert("RGB")
+        row = idx // RESULTS_PER_ROW
+        col = idx % RESULTS_PER_ROW
+
+        # fig.add_image(result, row=row + 1, col=col + 1)
+        fig.add_trace(px.imshow(result).data[0], row=row + 1, col=col + 1)
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        # figs.append(fig)
+    
+    fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
 
         
 
-#         # ax2 = fig2.add_axes([0.1 + col * 0.3, 0.1 + row * 0.3, 0.25, 0.25])
-#         # ax2.set_title(cam_choices[idx])
-#         # ax2.axis("off")
-#         # ax2.imshow(result)
+        # ax2 = fig2.add_axes([0.1 + col * 0.3, 0.1 + row * 0.3, 0.25, 0.25])
+        # ax2.set_title(cam_choices[idx])
+        # ax2.axis("off")
+        # ax2.imshow(result)
 
-#     return fig, class_ids, out
+    return fig
 
 
 def give_feedback():

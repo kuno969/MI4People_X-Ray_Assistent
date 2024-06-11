@@ -3,3 +3,5 @@ venv/
 meta.csv
 feedback_*
 .env
+.ruff_cache
+test_api.py

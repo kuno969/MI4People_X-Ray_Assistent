@@ -32,8 +32,8 @@ def read_data_from_azure_blob(
     return blob_data
 
 
-def get_image_from_azure(container_client, image_filename):
-    blob_name = "UI/05-12-2022_055200_UTC/images/" + image_filename
+def get_image_from_azure(container_client, image_filename, prefix="UI/05-12-2022_055200_UTC/images/"):
+    blob_name =  prefix + image_filename
 
     return read_data_from_azure_blob(container_client, blob_name)
 

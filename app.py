@@ -8,6 +8,8 @@ import streamlit as st
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+from collections import defaultdict
+
 from PIL import Image
 
 from src.feedback_utils import Feedback
@@ -20,9 +22,9 @@ from src.db_interface import MetadataStore, get_image_from_azure, setup_containe
 # Supported CAMs for multiple target layers
 CAM_METHODS = [
     "gradcam", 
-    "layercam",
-    "smoothgradcam",
-    "xgradcam"
+    # "layercam",
+    # "smoothgradcam",
+    # "xgradcam"
 ]
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 3
@@ -153,14 +155,14 @@ def diagnose(
 
                 st.session_state["model_result"] = requests.post(FUNCTION_URL, data=data, files=files).json()
 
-    class_label = list(st.session_state["model_result"]["predictions"].keys())[st.session_state.num_result]
-    probability = st.session_state["model_result"]["predictions"][class_label]
+    class_labels = list(st.session_state["model_result"]["predictions"].keys())
 
-    cam_heatmaps = {}
+    cam_heatmaps = defaultdict(dict)
     for cam_method in cam_choices:
-        cam_heatmaps[cam_method] = get_image_from_azure(st.session_state["container_client"], st.session_state["model_result"]["cam"][cam_method][class_label], prefix="")
+        for class_label in class_labels:
+            cam_heatmaps[cam_method][class_label] = get_image_from_azure(st.session_state["container_client"], st.session_state["model_result"]["cam"][cam_method][class_label], prefix="")
 
-    cam_fig = draw_cam(cam_heatmaps, cam_choices)
+    cam_figs = draw_cam(cam_heatmaps, cam_choices, class_labels)
 
 
     with input_col:
@@ -175,66 +177,60 @@ def diagnose(
 
             st.write(f"Store label: {img['label']}")
 
+    result_cols = [None for i in range(NUM_RESULTS)]
+    feedback_cols = [None for i in range(NUM_RESULTS)]
     with result_col:
         
             # Show results
-            with st.form("form"):
+            with st.form("form", clear_on_submit=True):
 
-                # result_tabs = st.tabs([f"Result {i+1}" for i in range(NUM_RESULTS)])
+                result_tabs = st.tabs([f"Result {i+1}" for i in range(NUM_RESULTS)])
 
-                # for i in range(NUM_RESULTS):
-                #     with result_tabs[i]:
-                #         result_cols[i], feedback_cols[i] = (
-                #             st.container(),
-                #             st.container(),
-                #         )
-
-                result_container = st.container()
-                feedback_container = st.container()
-
-
-                with result_container:
-                    st.header(f"Finding: {class_label} ({(st.session_state.num_result + 1)}/{NUM_RESULTS})")
-                    st.session_state["finding"] = class_label
-                    st.plotly_chart(cam_fig, use_container_width=True, theme="streamlit")
-                    # tabs = st.tabs(cam_choices)
-                    # for idx, tab in enumerate(tabs):
-                    #     with tab:
-                    #         st.plotly_chart(figs[idx], use_container_width=True, theme="streamlit")
-                    # st.pyplot(fig2)
-                    # components.html(mpld3.fig_to_html(fig2), height=500, width=500)
-
-                with feedback_container:
-
-                    cols = st.columns(2)
-
-                    with cols[0]:
-                        probability = 0.99 * 100
-                        st.session_state["probability"] = probability
-                        st.write(f"**Probability** : {probability:.2f}%")
-                        st.checkbox("Confirm Finding", key=f"confirm{st.session_state.num_result}")
-                        st.text_area("Comment", key=f"comment{st.session_state.num_result}")
-                    
-                    with cols[1]:
-                        st.selectbox(
-                            "Best CAM method*",
-                            cam_choices,
-                            index=None,
-                            help="The best CAM method for this image",
-                            key=f"best_cam_method{st.session_state.num_result}",
-                            placeholder="Select the best CAM method",
+                for i in range(NUM_RESULTS):
+                    with result_tabs[i]:
+                        result_cols[i], feedback_cols[i] = (
+                            st.container(),
+                            st.container(),
                         )
 
-                if st.session_state.num_result == NUM_RESULTS - 1:
-                    submit_label = "Next Patient"
-                    # st.session_state.current_index += 1
-                    # st.session_state.num_result = 0
-                else:
-                    submit_label = "Next Result"
-                    # st.session_state.num_result += 1
+                # result_container = st.container()
+                # feedback_container = st.container()
+
+
+                    with result_cols[i]:
+                        st.header(f"Finding: {class_labels[i]} ({i}/{NUM_RESULTS})")
+                        st.session_state[f"finding{i}"] = class_labels[i]
+                        st.plotly_chart(cam_figs[i], use_container_width=True, theme="streamlit")
+                        # tabs = st.tabs(cam_choices)
+                        # for idx, tab in enumerate(tabs):
+                        #     with tab:
+                        #         st.plotly_chart(figs[idx], use_container_width=True, theme="streamlit")
+                        # st.pyplot(fig2)
+                        # components.html(mpld3.fig_to_html(fig2), height=500, width=500)
+
+                    with feedback_cols[i]:
+
+                        cols = st.columns(2)
+
+                        with cols[0]:
+                            probability = st.session_state["model_result"]["predictions"][class_labels[i]]
+                            st.session_state[f"probability{i}"] = probability
+                            st.write(f"**Probability** : {probability:.2f}%")
+                            st.checkbox("Confirm Finding", key=f"confirm{i}")
+                            st.text_area("Comment", key=f"comment{i}")
+                        
+                        with cols[1]:
+                            st.selectbox(
+                                "Best CAM method*",
+                                cam_choices,
+                                index=None,
+                                help="The best CAM method for this image",
+                                key=f"best_cam_method{i}",
+                                placeholder="Select the best CAM method",
+                            )
 
                 st.form_submit_button(
-                    submit_label,
+                    "Next Patient",
                     use_container_width=True,
                     type="primary",
                     # key="submit_button",
@@ -248,64 +244,62 @@ def activate_feedback(feedback: Feedback):
         st.session_state["submit_button"].disabled = False
 
 
-def draw_cam(cam_heatmaps: dict, cam_choices) -> None:
+def draw_cam(cam_heatmaps: dict, cam_choices, class_labels) -> None:
     
-    fig = make_subplots(rows=3, cols=3, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
+    figs = []
 
-    for idx, cam in enumerate(cam_choices):
+    for class_label in class_labels:
+
+        fig = make_subplots(rows=3, cols=3, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
+
+        for idx, cam in enumerate(cam_choices):
+            
+            result = Image.open(BytesIO(cam_heatmaps[cam][class_label].read()), mode="r").convert("RGB")
+            row = idx // RESULTS_PER_ROW
+            col = idx % RESULTS_PER_ROW
+
+            fig.add_trace(px.imshow(result).data[0], row=row + 1, col=col + 1)
+            fig.update_xaxes(visible=False)
+            fig.update_yaxes(visible=False)
         
-        result = Image.open(BytesIO(cam_heatmaps[cam].read()), mode="r").convert("RGB")
-        row = idx // RESULTS_PER_ROW
-        col = idx % RESULTS_PER_ROW
+        fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
 
-        # fig.add_image(result, row=row + 1, col=col + 1)
-        fig.add_trace(px.imshow(result).data[0], row=row + 1, col=col + 1)
-        fig.update_xaxes(visible=False)
-        fig.update_yaxes(visible=False)
-        # figs.append(fig)
-    
-    fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
+        figs.append(fig)
 
-        
-
-        # ax2 = fig2.add_axes([0.1 + col * 0.3, 0.1 + row * 0.3, 0.25, 0.25])
-        # ax2.set_title(cam_choices[idx])
-        # ax2.axis("off")
-        # ax2.imshow(result)
-
-    return fig
+    return figs
 
 
 def give_feedback():
 
-    # for i in range(NUM_RESULTS):
-    selection_dict = {
-        "confirm": st.session_state[f"confirm{st.session_state.num_result}"],
-        "comment": st.session_state[f"comment{st.session_state.num_result}"],
-        "best_cam_method": st.session_state[f"best_cam_method{st.session_state.num_result}"],
-        "probability": st.session_state["probability"],
-    }
+    for i in range(NUM_RESULTS):
+        selection_dict = {
+            "confirm": st.session_state[f"confirm{i}"],
+            "comment": st.session_state[f"comment{i}"],
+            "best_cam_method": st.session_state[f"best_cam_method{i}"],
+            "probability": st.session_state[f"probability{i}"],
+        }
 
-    image_name = st.session_state.images[st.session_state.current_index]["filename"]
+        image_name = st.session_state.images[st.session_state.current_index]["filename"]
 
-    feedback_dict = {
-        "result": str(st.session_state.num_result) + "_" + st.session_state["finding"],
-        "selection": selection_dict,
-    }
+        feedback_dict = {
+            "result": str(i) + "_" + st.session_state[f"finding{i}"],
+            "selection": selection_dict,
+        }
 
-    st.session_state["feedback"].insert(image_name, feedback_dict)
+        st.session_state["feedback"].insert(image_name, feedback_dict)
 
-    if st.session_state.num_result == NUM_RESULTS - 1:
-        st.session_state.current_index += 1
-        st.session_state.num_result = 0
-        feedback_json = json.dumps(dict(st.session_state["feedback"].get_data()), indent=4)
-        write_data_to_azure_blob(
-            st.session_state["container_client"],
-            f"feedback/feedback_{_get_session().id}.json",
-            feedback_json,
-        )
-    else:
-        st.session_state.num_result += 1
+    print(st.session_state["feedback"].get_data())
+
+    feedback_json = json.dumps(dict(st.session_state["feedback"].get_data()), indent=4)
+    write_data_to_azure_blob(
+        st.session_state["container_client"],
+        f"feedback/feedback_{_get_session().id}.json",
+        feedback_json,
+    )
+
+    st.session_state.current_index += 1
+
+    
 
 def _get_session():
     from streamlit.runtime import get_instance

@@ -151,7 +151,11 @@ def diagnose(
                     "image": BytesIO(blob_data)
                 }
 
-                st.session_state["model_result"] = requests.post(FUNCTION_URL, data=data, files=files).json()
+                try:
+                    st.session_state["model_result"] = requests.post(FUNCTION_URL, data=data, files=files).json()
+                except json.JSONDecodeError as e:
+                    print(f"Failed to decode JSON response: {e.msg}")
+                    return
 
     class_label = list(st.session_state["model_result"]["predictions"].keys())[st.session_state.num_result]
     probability = st.session_state["model_result"]["predictions"][class_label]

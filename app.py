@@ -19,10 +19,11 @@ from src.db_interface import MetadataStore, get_image_from_azure, setup_containe
 
 # Supported CAMs for multiple target layers
 CAM_METHODS = [
-    "gradcam", 
+    "gradcam",
+    "gradcampp" ,
+    # "isc" ,
+    "xgradcam" ,
     "layercam",
-    "smoothgradcam",
-    "xgradcam"
 ]
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 3
@@ -33,13 +34,8 @@ FUNCTION_URL = os.environ["FUNCTION_URL"] + "?code=" + os.environ["FUNCTION_KEY"
 
 
 def main():
-    # Wide mode
     st.set_page_config(page_title="Chest X-ray Investigation", page_icon="🚑", layout="wide", initial_sidebar_state="collapsed")
 
-    # Designing the interface
-    # st.title("Chest X-ray Investigation")
-
-    # Sidebar
     st.sidebar.title("How-To")
 
     st.sidebar.write("""
@@ -56,8 +52,6 @@ def main():
         MI4People 2024"""
     )
 
-    # Enter access key
-    # account_key = st.sidebar.text_input("account_key", value=None)
     account_key = os.environ["SAS_TOKEN"]
 
     if "current_index" not in st.session_state:
@@ -74,21 +68,6 @@ def main():
 
             metadata.read_from_azure(container_client)
 
-            # TODO: Add possibility to filter by label or not (maybe through checkboxes or a multiselectbox)
-            # We need metadataStore for that, so load beforehand
-            # Also we need to reload image_filenames when we change the filter
-            # Is there a on_change event for selectbox?
-
-            # filter_label = st.sidebar.selectbox(
-            #     "Filter Label", metadata.get_unique_labels()
-            # )
-
-            # img = None
-            # if filter_label is not None:
-            #     image_filenames = metadata.get_random_image_filenames(
-            #         N_IMAGES, filter_label
-            #     )
-
             image_filenames = metadata.get_random_image_filenames(N_IMAGES)
 
             images = []
@@ -103,19 +82,7 @@ def main():
             st.session_state["container_client"] = container_client
             st.session_state.num_result = 0
 
-    # For newline
     st.sidebar.write("\n")
-
-    # st.sidebar.multiselect(
-    #     "CAM choices",
-    #     CAM_METHODS,
-    #     help="The way your class activation map will be computed",
-    #     max_selections=3,
-    #     key="cam_choices",
-    #     default=["GradCAM", "GradCAMpp"]
-    # )
-
-    # cam_choices = st.session_state["cam_choices"]
 
     cam_choices = CAM_METHODS
 
@@ -152,7 +119,8 @@ def diagnose(
                 }
 
                 try:
-                    st.session_state["model_result"] = requests.post(FUNCTION_URL, data=data, files=files).json()
+                    response = requests.post(FUNCTION_URL, data=data, files=files)
+                    st.session_state["model_result"] = response.json()
                 except json.JSONDecodeError as e:
                     print(f"Failed to decode JSON response: {e.msg}")
                     return
@@ -180,19 +148,7 @@ def diagnose(
             st.write(f"Store label: {img['label']}")
 
     with result_col:
-        
-            # Show results
             with st.form("form"):
-
-                # result_tabs = st.tabs([f"Result {i+1}" for i in range(NUM_RESULTS)])
-
-                # for i in range(NUM_RESULTS):
-                #     with result_tabs[i]:
-                #         result_cols[i], feedback_cols[i] = (
-                #             st.container(),
-                #             st.container(),
-                #         )
-
                 result_container = st.container()
                 feedback_container = st.container()
 
@@ -201,12 +157,6 @@ def diagnose(
                     st.header(f"Finding: {class_label} ({(st.session_state.num_result + 1)}/{NUM_RESULTS})")
                     st.session_state["finding"] = class_label
                     st.plotly_chart(cam_fig, use_container_width=True, theme="streamlit")
-                    # tabs = st.tabs(cam_choices)
-                    # for idx, tab in enumerate(tabs):
-                    #     with tab:
-                    #         st.plotly_chart(figs[idx], use_container_width=True, theme="streamlit")
-                    # st.pyplot(fig2)
-                    # components.html(mpld3.fig_to_html(fig2), height=500, width=500)
 
                 with feedback_container:
 
@@ -231,17 +181,13 @@ def diagnose(
 
                 if st.session_state.num_result == NUM_RESULTS - 1:
                     submit_label = "Next Patient"
-                    # st.session_state.current_index += 1
-                    # st.session_state.num_result = 0
                 else:
                     submit_label = "Next Result"
-                    # st.session_state.num_result += 1
 
                 st.form_submit_button(
                     submit_label,
                     use_container_width=True,
                     type="primary",
-                    # key="submit_button",
                     on_click=give_feedback,
                 )
 
@@ -262,27 +208,17 @@ def draw_cam(cam_heatmaps: dict, cam_choices) -> None:
         row = idx // RESULTS_PER_ROW
         col = idx % RESULTS_PER_ROW
 
-        # fig.add_image(result, row=row + 1, col=col + 1)
         fig.add_trace(px.imshow(result).data[0], row=row + 1, col=col + 1)
         fig.update_xaxes(visible=False)
         fig.update_yaxes(visible=False)
-        # figs.append(fig)
     
     fig.update_layout(height=500, width=800, margin=dict(l=20, r=20, t=50, b=20))
-
-        
-
-        # ax2 = fig2.add_axes([0.1 + col * 0.3, 0.1 + row * 0.3, 0.25, 0.25])
-        # ax2.set_title(cam_choices[idx])
-        # ax2.axis("off")
-        # ax2.imshow(result)
 
     return fig
 
 
 def give_feedback():
 
-    # for i in range(NUM_RESULTS):
     selection_dict = {
         "confirm": st.session_state[f"confirm{st.session_state.num_result}"],
         "comment": st.session_state[f"comment{st.session_state.num_result}"],

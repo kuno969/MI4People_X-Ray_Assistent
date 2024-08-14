@@ -28,7 +28,7 @@ CAM_METHODS = [
 MODEL_SOURCES = ["XRV"]
 NUM_RESULTS = 3
 N_IMAGES = 10
-RESULTS_PER_ROW = 3
+RESULTS_PER_ROW = 2
 
 FUNCTION_URL = os.environ["FUNCTION_URL"] + "?code=" + os.environ["FUNCTION_KEY"]
 
@@ -108,9 +108,11 @@ def diagnose(
 
     with st.spinner("Analyzing..."):
         if st.session_state.num_result == 0:
+            st.session_state["model_result"] = {}
 
+            for cam_method in cam_choices:
                 data = {
-                    "method": cam_choices,
+                    "method": cam_method,
                     "k": "5",
                 }
 
@@ -118,12 +120,19 @@ def diagnose(
                     "image": BytesIO(blob_data)
                 }
 
-                try:
-                    response = requests.post(FUNCTION_URL, data=data, files=files)
-                    st.session_state["model_result"] = response.json()
-                except json.JSONDecodeError as e:
-                    print(f"Failed to decode JSON response: {e.msg}")
-                    return
+                response = requests.post(FUNCTION_URL, data=data, files=files)
+                response = response.json()
+                
+                if "predictions" not in st.session_state["model_result"]:
+                    st.session_state["model_result"]["predictions"] = response["predictions"]
+
+                if "cam" not in st.session_state["model_result"]:
+                    st.session_state["model_result"]["cam"] = response["cam"]
+
+                st.session_state["model_result"]["cam"].update(response["cam"])
+            
+            print(st.session_state["model_result"])
+                
 
     class_label = list(st.session_state["model_result"]["predictions"].keys())[st.session_state.num_result]
     probability = st.session_state["model_result"]["predictions"][class_label]
@@ -200,7 +209,7 @@ def activate_feedback(feedback: Feedback):
 
 def draw_cam(cam_heatmaps: dict, cam_choices) -> None:
     
-    fig = make_subplots(rows=3, cols=3, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
+    fig = make_subplots(rows=2, cols=2, subplot_titles=cam_choices, horizontal_spacing=0.05, vertical_spacing=0.05)
 
     for idx, cam in enumerate(cam_choices):
         

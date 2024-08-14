@@ -173,7 +173,7 @@ def diagnose(
 
                     with cols[0]:
                         st.session_state["probability"] = probability
-                        st.write(f"**Probability** : {probability:.2f}%")
+                        st.write(f"**Probability** : {(probability * 100):.2f}%")
                         st.checkbox("Confirm Finding", key=f"confirm{st.session_state.num_result}")
                         st.text_area("Comment", key=f"comment{st.session_state.num_result}")
                     

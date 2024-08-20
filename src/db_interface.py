@@ -66,12 +66,17 @@ class MetadataStore:
             "Image Index"
         ].to_list()
 
-    def get_random_image_filenames(self, n: int, label: str = None) -> list[str]:
+    def get_random_image_filenames(self, n: int, label: str | None = None, inverse_label: bool = False) -> list[str]:
         if label is None:
             return random.sample(self._df["Image Index"].to_list(), n)
         else:
+            if inverse_label:
+                selector = ~self._df["Finding Labels"].str.contains(label)
+            else:
+                selector = self._df["Finding Labels"].str.contains(label)
+            
             return random.sample(
-                self._df[self._df["Finding Labels"].str.contains(label)][
+                self._df[selector][
                     "Image Index"
                 ].to_list(),
                 n,

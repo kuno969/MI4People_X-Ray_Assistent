@@ -68,7 +68,7 @@ def main():
 
             metadata.read_from_azure(container_client)
 
-            image_filenames = metadata.get_random_image_filenames(N_IMAGES)
+            image_filenames = metadata.get_random_image_filenames(N_IMAGES, "No Finding", inverse_label=True)
 
             images = []
             for image_filename in image_filenames:
